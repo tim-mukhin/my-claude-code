@@ -7,11 +7,25 @@ Generate mode (--generate): headless claude --print, writes custom-title to JSON
 import json, sys, os, subprocess, time, logging
 
 LOG_FILE = os.path.expanduser('~/.claude/label-generate.log')
+PATTERN = '"type":"custom-title"'
+
+
+def has_custom_title(path):
+    """Check if JSONL already contains a custom-title record."""
+    if not path or not os.path.exists(path):
+        return False
+    try:
+        with open(path) as f:
+            for line in f:
+                if PATTERN in line:
+                    return True
+    except:
+        pass
+    return False
 
 
 def hook_mode():
     """Called as UserPromptSubmit hook. Fast, synchronous."""
-    # Anti-recursion: skip if inside a claude --print subprocess
     if os.environ.get('CLAUDE_LABEL_GENERATING'):
         sys.exit(0)
 
@@ -23,22 +37,10 @@ def hook_mode():
     if not (session_id and prompt_text and transcript_path):
         sys.exit(0)
 
-    # Skip if custom-title already exists in JSONL
-    if os.path.exists(transcript_path):
-        try:
-            result = subprocess.run(
-                ['grep', '-q', 'custom-title', transcript_path],
-                capture_output=True, timeout=2)
-            if result.returncode == 0:
-                sys.exit(0)
-        except:
-            pass
+    if has_custom_title(transcript_path):
+        sys.exit(0)
 
     try:
-        # preexec_fn=os.setpgrp: new process group (survives parent exit,
-        # immune to parent's signals) but SAME session (keeps /dev/tty access).
-        # start_new_session=True would create a new session with no controlling
-        # terminal, making /dev/tty inaccessible from the background process.
         subprocess.Popen(
             [sys.executable, __file__, '--generate',
              session_id, transcript_path, prompt_text],
@@ -62,6 +64,11 @@ def generate_mode():
 
     if len(prompt_text.strip()) < 3:
         logging.info(f'[{session_id[:8]}] Skipped: prompt too short')
+        sys.exit(0)
+
+    # Re-check before spending tokens on claude --print
+    if has_custom_title(transcript_path):
+        logging.info(f'[{session_id[:8]}] custom-title already exists, skipping generation')
         sys.exit(0)
 
     system_prompt = (
@@ -98,13 +105,14 @@ def generate_mode():
 
     logging.info(f'[{session_id[:8]}] Label: {label}')
 
-    # Write custom-title to JSONL (for /resume + statusline + all hooks)
+    # Write custom-title to JSONL
     record = json.dumps({
         "type": "custom-title",
         "customTitle": label,
         "sessionId": session_id
     }, ensure_ascii=False, separators=(',', ':'))
 
+    written = False
     for attempt in range(2):
         try:
             if not os.path.exists(transcript_path):
@@ -113,22 +121,26 @@ def generate_mode():
                     continue
                 logging.warning(f'[{session_id[:8]}] JSONL not found: {transcript_path}')
                 break
+            if has_custom_title(transcript_path):
+                logging.info(f'[{session_id[:8]}] custom-title already exists, skipping')
+                break
             with open(transcript_path, 'a') as f:
                 f.write(record + '\n')
             logging.info(f'[{session_id[:8]}] custom-title written to JSONL')
+            written = True
             break
         except Exception as e:
             logging.error(f'[{session_id[:8]}] JSONL write failed: {e}')
             break
 
-    # Update tab title via /dev/tty (works because we use setpgrp, not new session)
-    try:
-        fd = os.open('/dev/tty', os.O_WRONLY)
-        os.write(fd, f'\033]2;✳ {label}\007'.encode())
-        os.close(fd)
-        logging.info(f'[{session_id[:8]}] OSC written to /dev/tty')
-    except Exception as e:
-        logging.info(f'[{session_id[:8]}] OSC failed: {e}')
+    # Only update tab title if we actually wrote the label
+    if written:
+        try:
+            fd = os.open('/dev/tty', os.O_WRONLY)
+            os.write(fd, f'\033]2;✳ {label}\007'.encode())
+            os.close(fd)
+        except:
+            pass
 
 
 if __name__ == '__main__':

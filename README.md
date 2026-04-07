@@ -69,7 +69,7 @@ Opus | my-project: 🐛 fix auth bug | ctx 19% | #4 · last 312 · next 48K · s
 | `0.0%` (before bar) | Session delta (how much this session consumed) |
 | `5h[··········]1.0%` | 5-hour rolling window usage with bar |
 | `2h30m` | Time until 5h window resets |
-| `w[|||||||····]66.0%` | 7-day window usage with bar |
+| `w[\|\|\|\|\|\|\|····]66.0%` | 7-day window usage with bar |
 | `Fr10.04` | 7-day window reset date |
 
 Color thresholds: green/gray <50%, dim yellow 50-79%, red >=80%. Peak hours (8AM-2PM ET weekdays) shown with `↑` indicator.

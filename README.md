@@ -7,7 +7,7 @@ Personal Claude Code hooks and status line config.
 - `hooks/label-inject.py` - auto-generates session labels (emoji + description) via background `claude --print`. Writes `custom-title` to session JSONL. One label per session, no duplicates.
 - `hooks/tab-title.sh` - updates terminal tab title with status icon + session label. Shared by all hooks.
 - `statusline.sh` - status line with model, project, label, context %, message count, last/next token stats, cumulative cost, rate limit bars.
-- `statusline-parse.py` - JSON parser for statusline: extracts model, context, cost, rate limits, peak/off-peak detection.
+- `statusline-parse.py` - JSON parser for statusline: extracts model, context, cost, rate limits, peak/off-peak detection. Rate limit percentages are whole numbers (API has no decimal granularity).
 
 Tab title shows status: `⋯` working, `⏸` needs attention, `✳` idle.
 
@@ -46,7 +46,7 @@ Merge into `~/.claude/settings.json`:
 
 ```
 Opus | my-project: 🐛 fix auth bug | ctx 19% | #4 · last 312 · next 48K · sum 357K/1.8M · $1.8/1.1
-0.0% 5h[··········]1.0% 2h30m | 0.0% w[|||||||····]66.0% Fr10.04
+0% 5h[··········]1% 2h30m | 0% w[|||||||····]66% Fr10.04
 ```
 
 **Line 1** (left to right):
@@ -66,10 +66,10 @@ Opus | my-project: 🐛 fix auth bug | ctx 19% | #4 · last 312 · next 48K · s
 
 | Segment | Meaning |
 |---------|---------|
-| `0.0%` (before bar) | Session delta (how much this session consumed) |
-| `5h[··········]1.0%` | 5-hour rolling window usage with bar |
+| `0%` (before bar) | Session delta (how much this session consumed) |
+| `5h[··········]1%` | 5-hour rolling window usage with bar |
 | `2h30m` | Time until 5h window resets |
-| `w[\|\|\|\|\|\|\|····]66.0%` | 7-day window usage with bar |
+| `w[\|\|\|\|\|\|\|····]66%` | 7-day window usage with bar |
 | `Fr10.04` | 7-day window reset date |
 
 Color thresholds: green/gray <50%, dim yellow 50-79%, red >=80%. Peak hours (8AM-2PM ET weekdays) shown with `↑` indicator.

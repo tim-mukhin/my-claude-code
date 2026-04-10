@@ -46,9 +46,9 @@ rl_7d_reset = rl.get('seven_day', {}).get('resets_at')
 # Session start delta via JSONL
 rl_5h_delta = ''
 rl_7d_delta = ''
+rl_start = None
 tp = d.get('transcript_path', '')
 if tp and rl_5h is not None:
-    rl_start = None
     try:
         with open(tp) as f:
             for line in f:
@@ -82,17 +82,21 @@ print(f'MODEL="{model_name}"')
 print(f'COST_USD={cost_usd:.1f}')
 print(f'IS_PEAK={1 if is_peak else 0}')
 if rl_5h is not None:
-    print(f'RL_5H={int(round(rl_5h))}')
+    print(f'RL_5H={rl_5h:.1f}')
     if rl_5h_delta != '':
-        print(f'RL_5H_D={int(round(rl_5h_delta))}')
+        print(f'RL_5H_D={rl_5h_delta:.1f}')
     else:
-        print(f'RL_5H_D=0')
+        print(f'RL_5H_D=0.0')
 if rl_7d is not None:
-    print(f'RL_7D={int(round(rl_7d))}')
+    print(f'RL_7D={rl_7d:.1f}')
     if rl_7d_delta != '':
-        print(f'RL_7D_D={int(round(rl_7d_delta))}')
+        print(f'RL_7D_D={rl_7d_delta:.1f}')
     else:
-        print(f'RL_7D_D=0')
+        print(f'RL_7D_D=0.0')
+if rl_start is not None:
+    print(f'RL_5H_START={rl_start.get("five_hour", 0)}')
+    print(f'RL_7D_START={rl_start.get("seven_day", 0)}')
+    print(f'RL_START_TS={rl_start.get("timestamp", 0)}')
 if rl_5h_reset is not None:
     remaining = int(rl_5h_reset) - int(time.time())
     if remaining > 0:

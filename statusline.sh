@@ -28,6 +28,7 @@ last_user_tokens = 0
 prompt_ids = set()
 cum_main = 0
 usd_main = 0.0
+compact_seen = False
 # Base input price per model (USD per 1M tokens)
 _PRICES = {'opus': 5.0, 'sonnet': 3.0, 'haiku': 1.0}
 def _base_price(model_id):
@@ -69,7 +70,16 @@ try:
                             last_total = _sum_usage(usage)
             if is_sc:
                 continue
-            if t == 'user' and not rec.get('isMeta') and not rec.get('isCompactSummary'):
+            # /compact resets all counters - count only from last compact
+            if t == 'user' and rec.get('isCompactSummary'):
+                prompt_ids.clear()
+                cum_main = 0
+                usd_main = 0.0
+                last_total = 0
+                last_user_tokens = 0
+                compact_seen = True
+                continue
+            if t == 'user' and not rec.get('isMeta'):
                 content = rec.get('message', {}).get('content', '')
                 if isinstance(content, list):
                     if any(isinstance(c, dict) and c.get('type') == 'tool_result' for c in content):
@@ -91,11 +101,11 @@ try:
                             b64 = block.get('source', {}).get('data', '')
                             tokens += len(b64) * 3 // 4 // 750
                 last_user_tokens = tokens
-    # Sum subagent tokens
+    # Sum subagent tokens (skip if compact happened - sidechain data already in cum_main)
     cum_sub = 0
     usd_sub = 0.0
     _base = '$JSONL'.replace('.jsonl', '')
-    for _sf in _glob.glob(_base + '/subagents/agent-*.jsonl'):
+    for _sf in ([] if compact_seen else _glob.glob(_base + '/subagents/agent-*.jsonl')):
         try:
             with open(_sf) as _f:
                 for _line in _f:
@@ -128,6 +138,65 @@ except:
     # Read last custom-title from JSONL
     LABEL=$(jq -r 'select(.type=="custom-title") | .customTitle' "$JSONL" 2>/dev/null | tail -1)
   fi
+fi
+
+# Integer versions of RL percentages (used for snapshot + display)
+RL_5H_INT=${RL_5H%.*}
+RL_7D_INT=${RL_7D%.*}
+
+# Write rl-snapshot to session JSONL (for cross-session RL attribution)
+if [ -n "$RL_5H" ] && [ -n "$JSONL" ] && [ -f "$JSONL" ]; then
+  echo "{\"type\":\"rl-snapshot\",\"ts\":$(date +%s),\"sid\":\"${SID}\",\"rl5\":${RL_5H_INT:-0},\"rl7\":${RL_7D_INT:-0},\"eff_k\":${EFF_K:-0},\"sum_k\":${CUM_K:-0},\"usd\":${REAL_USD:-0.0}}" >> "$JSONL"
+fi
+
+# Cross-session RL attribution (proportional by effective tokens)
+if [ -n "$RL_5H" ] && [ -n "$RL_5H_START" ] && [ -n "$RL_START_TS" ] 2>/dev/null; then
+  eval "$(python3 -c "
+import os, glob, subprocess, json, sys
+my_sid = '$SID'
+start_rl5 = float('${RL_5H_START:-0}')
+current_rl5 = float('${RL_5H:-0}')
+start_ts = int('${RL_START_TS:-0}')
+rl_delta = current_rl5 - start_rl5
+if rl_delta <= 0 or start_ts <= 0:
+    sys.exit(0)
+candidates = glob.glob(os.path.expanduser('~/.claude/projects/*/*.jsonl'))
+recent = [f for f in candidates if os.path.getmtime(f) >= start_ts and '/subagents/' not in f]
+if not recent:
+    sys.exit(0)
+try:
+    result = subprocess.run(
+        ['rg', '--no-filename', 'rl-snapshot'] + recent,
+        capture_output=True, text=True, timeout=5
+    )
+except:
+    sys.exit(0)
+sessions = {}
+for line in result.stdout.splitlines():
+    try:
+        r = json.loads(line.strip())
+    except:
+        continue
+    if r.get('ts', 0) < start_ts:
+        continue
+    sid = r.get('sid', '')
+    sessions.setdefault(sid, []).append((r.get('ts', 0), r.get('eff_k', 0)))
+def spend(snapshots):
+    snapshots.sort()
+    total = 0
+    for i in range(1, len(snapshots)):
+        d = snapshots[i][1] - snapshots[i-1][1]
+        if d > 0:
+            total += d
+    return total
+spends = {sid: spend(snaps) for sid, snaps in sessions.items()}
+total_eff = sum(spends.values())
+n_sess = len(sessions)
+if total_eff > 0 and my_sid in spends:
+    my_share = (spends[my_sid] / total_eff) * rl_delta
+    print(f'MY_RL5={my_share:.1f}')
+    print(f'N_SESS={n_sess}')
+" 2>/dev/null)"
 fi
 
 # Color ctx by used_percentage threshold
@@ -266,31 +335,31 @@ if [ -n "$MSG_NUM" ] && [ -n "$NEXT_K" ] && [ "$MSG_NUM" -gt 0 ] 2>/dev/null; th
     }
     rl_color() {
       if [ "$1" -ge 80 ] 2>/dev/null; then echo "\033[31m"
-      elif [ "$1" -ge 50 ] 2>/dev/null; then echo "\033[2;33m"
+      elif [ "$1" -ge 50 ] 2>/dev/null; then echo "\033[33m"
       else echo "\033[90m"; fi
     }
     # 5h bar
-    RL_5H_INT=${RL_5H%.*}
     BAR5=$(make_bar "$RL_5H_INT")
     C5=$(rl_color "$RL_5H_INT")
     RESET_STR=""
     [ -n "$RL_RESET" ] && RESET_STR=" ${RL_RESET}"
-    # Session delta prefix (always show)
+    # Session delta prefix: attributed if available, raw otherwise
     DELTA5=""
-    if [ -n "$RL_5H_D" ]; then
+    if [ -n "$MY_RL5" ] && [ -n "$N_SESS" ] && [ "$N_SESS" -gt 1 ] 2>/dev/null; then
+      DELTA5="\033[90m${MY_RL5}%\033[0m"
+    elif [ -n "$RL_5H_D" ]; then
       DELTA5="\033[90m${RL_5H_D}%\033[0m"
     fi
-    RL_STR="${DELTA5} ${C5}5h\033[2;90m[\033[0m${C5}${BAR5}\033[2;90m]\033[0m${C5}${RL_5H}%\033[2;90m${RESET_STR}\033[0m"
+    RL_STR="${DELTA5} ${C5}5h[${BAR5}]${RL_5H}%\033[90m${RESET_STR}\033[0m"
     # 7d bar
     if [ -n "$RL_7D" ] 2>/dev/null; then
-      RL_7D_INT=${RL_7D%.*}
       BAR7=$(make_bar "$RL_7D_INT")
       C7=$(rl_color "$RL_7D_INT")
       DELTA7=""
       if [ -n "$RL_7D_D" ]; then
         DELTA7="\033[90m${RL_7D_D}%\033[0m"
       fi
-      RL_STR="${RL_STR} \033[2;90m|\033[0m ${DELTA7} ${C7}w\033[2;90m[\033[0m${C7}${BAR7}\033[2;90m]\033[0m${C7}${RL_7D}%\033[2;90m ${RL_7D_DATE}\033[0m"
+      RL_STR="${RL_STR} \033[90m|\033[0m ${DELTA7} ${C7}w[${BAR7}]${RL_7D}%\033[90m ${RL_7D_DATE}\033[0m"
     fi
     emit "${TOK_STR}"
     # Rate limits on second line

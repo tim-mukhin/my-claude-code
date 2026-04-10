@@ -6,8 +6,8 @@ Personal Claude Code hooks and status line config.
 
 - `hooks/label-inject.py` - auto-generates session labels (emoji + description) via background `claude --print`. Writes `custom-title` to session JSONL. One label per session, no duplicates.
 - `hooks/tab-title.sh` - updates terminal tab title with status icon + session label. Shared by all hooks.
-- `statusline.sh` - status line with model, project, label, context %, message count, last/next token stats, cumulative cost, rate limit bars.
-- `statusline-parse.py` - JSON parser for statusline: extracts model, context, cost, rate limits, peak/off-peak detection. Rate limit percentages are whole numbers (API has no decimal granularity).
+- `statusline.sh` - status line with model, project, label, context %, message count, last/next token stats, cumulative cost, rate limit bars with per-session attribution.
+- `statusline-parse.py` - JSON parser for statusline: extracts model, context, cost, rate limits, peak/off-peak detection.
 
 Tab title shows status: `⋯` working, `⏸` needs attention, `✳` idle.
 
@@ -66,7 +66,7 @@ Opus | my-project: 🐛 fix auth bug | ctx 19% | #4 · last 312 · next 48K · s
 
 | Segment | Meaning |
 |---------|---------|
-| `0%` (before bar) | Session delta (how much this session consumed) |
+| `+3.2%` (before bar) | This session's estimated RL consumption (see [rate limit attribution](docs/rate-limit-attribution.md)) |
 | `5h[··········]1%` | 5-hour rolling window usage with bar |
 | `2h30m` | Time until 5h window resets |
 | `w[\|\|\|\|\|\|\|····]66%` | 7-day window usage with bar |
@@ -75,5 +75,6 @@ Opus | my-project: 🐛 fix auth bug | ctx 19% | #4 · last 312 · next 48K · s
 Color thresholds: green/gray <50%, dim yellow 50-79%, red >=80%. Peak hours (8AM-2PM ET weekdays) shown with `↑` indicator.
 
 See [docs/token-economics.md](docs/token-economics.md) for the full breakdown of how tokens are counted and priced.
+See [docs/rate-limit-attribution.md](docs/rate-limit-attribution.md) for how rate limit consumption is attributed across parallel sessions.
 
 Deps: `python3`, `jq`, `claude` CLI.

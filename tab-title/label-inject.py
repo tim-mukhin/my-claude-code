@@ -9,6 +9,10 @@ import json, sys, os, subprocess, time, logging
 LOG_FILE = os.path.expanduser('~/.claude/label-generate.log')
 PATTERN = '"type":"custom-title"'
 
+# Model used to generate the tab label. Set this to a model YOU have access to.
+# A cheap/fast model is plenty for 2-4 word labels; the default assumes Sonnet.
+LABEL_MODEL = 'claude-sonnet-4-6'
+
 
 def has_custom_title(path):
     """Check if JSONL already contains a custom-title record."""
@@ -84,7 +88,7 @@ def generate_mode():
 
     try:
         result = subprocess.run(
-            ['claude', '--print', '--model', 'claude-sonnet-4-6',
+            ['claude', '--print', '--model', LABEL_MODEL,
              '--no-session-persistence', '--permission-mode', 'bypassPermissions',
              '-p', f'{system_prompt}\nUser message:\n{prompt_text[:500]}'],
             capture_output=True, text=True, timeout=15,

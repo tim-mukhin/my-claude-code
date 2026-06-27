@@ -43,36 +43,62 @@ rl_7d = rl.get('seven_day', {}).get('used_percentage')
 rl_5h_reset = rl.get('five_hour', {}).get('resets_at')
 rl_7d_reset = rl.get('seven_day', {}).get('resets_at')
 
-# Session start delta via JSONL
+# Session start delta via JSONL, keyed by rate limit window (resets_at).
+# When a window resets, the baseline becomes stale; detect by comparing
+# resets_at to the current value and write a fresh baseline on mismatch.
+# 5h and 7d are tracked separately since their windows reset independently.
 rl_5h_delta = ''
 rl_7d_delta = ''
-rl_start = None
+latest_5h = None
+latest_7d = None
 tp = d.get('transcript_path', '')
 if tp and rl_5h is not None:
     try:
         with open(tp) as f:
             for line in f:
-                if '"rate-limits-start"' in line:
-                    rl_start = json.loads(line.strip())
-                    break
+                if '"rl-start-5h"' in line:
+                    try:
+                        latest_5h = json.loads(line.strip())
+                    except:
+                        pass
+                elif '"rl-start-7d"' in line:
+                    try:
+                        latest_7d = json.loads(line.strip())
+                    except:
+                        pass
     except:
         pass
-    if rl_start is None:
+
+    def _append(rec):
         try:
-            rec = json.dumps({
-                'type': 'rate-limits-start',
-                'five_hour': rl_5h,
-                'seven_day': rl_7d or 0,
-                'timestamp': int(time.time()),
-                'sessionId': sid
-            }, ensure_ascii=False, separators=(',', ':'))
             with open(tp, 'a') as f:
-                f.write(rec + '\n')
+                f.write(json.dumps(rec, ensure_ascii=False, separators=(',', ':')) + '\n')
         except:
             pass
-    else:
-        rl_5h_delta = rl_5h - rl_start.get('five_hour', 0)
-        rl_7d_delta = (rl_7d or 0) - rl_start.get('seven_day', 0)
+
+    # 5h baseline: stale if resets_at differs from current window
+    if latest_5h is None or latest_5h.get('resets_at') != rl_5h_reset:
+        latest_5h = {
+            'type': 'rl-start-5h',
+            'five_hour': rl_5h,
+            'resets_at': rl_5h_reset,
+            'timestamp': int(time.time()),
+            'sessionId': sid,
+        }
+        _append(latest_5h)
+    rl_5h_delta = rl_5h - latest_5h.get('five_hour', 0)
+
+    if rl_7d is not None:
+        if latest_7d is None or latest_7d.get('resets_at') != rl_7d_reset:
+            latest_7d = {
+                'type': 'rl-start-7d',
+                'seven_day': rl_7d,
+                'resets_at': rl_7d_reset,
+                'timestamp': int(time.time()),
+                'sessionId': sid,
+            }
+            _append(latest_7d)
+        rl_7d_delta = rl_7d - latest_7d.get('seven_day', 0)
 
 # Output bash variables
 print(f'SID="{sid}"')
